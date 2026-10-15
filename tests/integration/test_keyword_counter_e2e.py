@@ -80,76 +80,31 @@ def test_e2e_keyword_counter_with_complex_traps():
         assert exact_counts_map["học sâu"] == 1
 
         # ---------------------------------------------------------------------
-        # Case B: Hybrid Tam Tầng (Exact + Fuzzy Candidate + LLM Recheck)
+        # Case B: Kiểm tra xuất file bảng tính Excel (count_keywords.xlsx)
         # ---------------------------------------------------------------------
-        report_hybrid = CountKeywordsUseCase.execute(
-            doc_dir=doc_dir,
-            document_id="AnPhat_BaoCaoThuongNien_2025",
-            keywords_file=str(kw_file),
-            enable_llm=True,
-            min_similarity=0.86,
-        )
+        count_xlsx_path = doc_dir / "count_keywords.xlsx"
+        assert count_xlsx_path.exists(), "File count_keywords.xlsx phải được tạo"
 
-        assert report_hybrid is not None
-        assert report_hybrid.llm_enabled is True
+        import openpyxl
+        wb = openpyxl.load_workbook(count_xlsx_path)
+        ws = wb.active
+        assert ws.title == "Thống kê từ khóa"
+        assert ws["A1"].value == "BÁO CÁO TẦN SUẤT TỪ KHÓA"
+        assert ws["A4"].value == "STT"
+        assert ws["B4"].value == "Từ khóa / Cụm từ"
+        assert ws["C4"].value == "Số lần xuất hiện"
 
-        hybrid_map = {k.keyword: k for k in report_hybrid.keywords}
+        # Đọc dữ liệu từ file Excel
+        excel_counts = {}
+        for row in range(5, 5 + len(target_keywords)):
+            kw = ws.cell(row=row, column=2).value
+            cnt = ws.cell(row=row, column=3).value
+            excel_counts[kw] = cnt
 
-        # 1. Kiểm tra 'trí tuệ nhân tạo': Bắt thêm 2 lỗi OCR ("tri tuệ nhan tạo", "trí tue nhân tao")
-        ttnt = hybrid_map["trí tuệ nhân tạo"]
-        assert ttnt.exact_count == 2
-        assert ttnt.fuzzy_count == 2
-        assert ttnt.count == 4
-        ttnt_variants = [v.matched_text for v in ttnt.variants]
-        assert "tri tuệ nhan tạo" in ttnt_variants
-        assert "trí tue nhân tao" in ttnt_variants
+        assert excel_counts["trí tuệ nhân tạo"] == 2
+        assert excel_counts["chuyển đổi số"] == 1
+        assert excel_counts["điện toán đám mây"] == 1
+        assert excel_counts["dữ liệu lớn"] == 2
+        assert excel_counts["học máy"] == 2
+        assert excel_counts["học sâu"] == 1
 
-        # 2. Kiểm tra 'chuyển đổi số': Bắt thêm "chuyen doi so"
-        cds = hybrid_map["chuyển đổi số"]
-        assert cds.exact_count == 1
-        assert cds.fuzzy_count == 1
-        assert cds.count == 2
-        assert any("chuyen doi so" in v.matched_text for v in cds.variants)
-
-        # 3. Kiểm tra 'điện toán đám mây': Bắt thêm "điên toan đám mây"
-        dtdm = hybrid_map["điện toán đám mây"]
-        assert dtdm.exact_count == 1
-        assert dtdm.fuzzy_count == 1
-        assert dtdm.count == 2
-
-        # 4. Kiểm tra 'dữ liệu lớn': Bắt thêm "du lieu lon"
-        dll = hybrid_map["dữ liệu lớn"]
-        assert dll.exact_count == 2
-        assert dll.fuzzy_count == 1
-        assert dll.count == 3
-
-        # 5. Kiểm tra 'khai thác dữ liệu': Bắt thêm "khai thac du lieu"
-        ktdl = hybrid_map["khai thác dữ liệu"]
-        assert ktdl.fuzzy_count == 1
-
-        # 6. Kiểm tra 'học máy': Bắt thêm "học may"
-        hm = hybrid_map["học máy"]
-        assert hm.exact_count == 2
-        assert hm.fuzzy_count == 1
-        assert hm.count == 3
-
-        # 7. Kiểm tra 'học sâu': Bắt thêm "học sầu"
-        hs = hybrid_map["học sâu"]
-        assert hs.exact_count == 1
-        assert hs.fuzzy_count == 1
-        assert hs.count == 2
-
-        # 8. Bẫy phủ định (Negative traps): "trí tuệ của nhân dân", "đám mây trên trời"
-        # Tuyệt đối không được tính vào kết quả
-        total_rescued = report_hybrid.total_fuzzy_matches
-        assert total_rescued == 8, f"Kỳ vọng cứu được đúng 8 lỗi OCR, thực tế thu được {total_rescued}"
-
-        # 9. Kiểm tra file count_keywords.md được xuất ra
-        count_md_path = doc_dir / "count_keywords.md"
-        assert count_md_path.exists()
-        md_text = count_md_path.read_text(encoding="utf-8")
-        assert "Báo Cáo Tần Suất Từ Khóa" in md_text
-        assert "**Cơ chế LLM Recheck:** ĐÃ BẬT (3-Tier Hybrid)" in md_text
-        assert "**Khớp chính xác (100%):** 10" in md_text
-        assert "**Khớp gần đúng (86% - 99%):** 8" in md_text
-        assert "**Tổng số lần phát hiện:** 18" in md_text

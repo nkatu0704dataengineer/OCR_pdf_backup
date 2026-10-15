@@ -3,6 +3,7 @@ from typing import List, Optional
 from src.ocr.domain.models.page import ExtractedPage
 from src.ocr.domain.models.document import ExtractedDocument
 from src.ocr.domain.models.region import ContentType, BoundingBox, Region
+from src.ocr.domain.routing.page_type import PageType
 
 class MarkdownExporter:
     """
@@ -94,7 +95,18 @@ class MarkdownExporter:
         # loses labels and surrounding content.
 
         # Step 2a: Merge vertically stacked lines of the same box (strictly for flowchart / diagram pages)
-        is_diagram_page = (len(page.tables) == 0 and len(body_blocks) < 25)
+        is_diagram_page = (
+            len(page.tables) == 0
+            and len(body_blocks) < 25
+            and not any(len(b.text.strip()) > 150 for b in body_blocks)
+            and (
+                bool(getattr(page, "diagrams", None))
+                or getattr(page, "page_type", None) in (PageType.DIAGRAM_HEAVY, "DIAGRAM_HEAVY")
+                or any("sơ đồ tổ chức" in b.text.lower() for b in body_blocks)
+                or any("người phụ trách" in b.text.lower() for b in body_blocks)
+                or (body_blocks and sum(len(b.text.strip()) for b in body_blocks) / len(body_blocks) < 40)
+            )
+        )
         if is_diagram_page:
             sorted_body = sorted(body_blocks, key=lambda b: (b.bbox[1] if b.bbox else 0, b.bbox[0] if b.bbox else 0))
             vertically_merged: List[TextBlock] = []
@@ -242,28 +254,31 @@ class MarkdownExporter:
                     t_idx += 1
                 return res
 
-            # On Two-Up / multi-column pages, interleave tables within their respective columns
-            p_width = getattr(page, "width", 595.0) or 595.0
-            if p_width > 900:
-                mid_x = p_width / 2.0
-                left_b = [b for b in synthesized_blocks if b.bbox and (b.bbox[0] + b.bbox[2]) / 2.0 < mid_x and (b.bbox[2] - b.bbox[0]) <= 0.65 * p_width]
-                right_b = [b for b in synthesized_blocks if b.bbox and (b.bbox[0] + b.bbox[2]) / 2.0 >= mid_x and (b.bbox[2] - b.bbox[0]) <= 0.65 * p_width]
-                span_b = [b for b in synthesized_blocks if b not in left_b and b not in right_b]
-
-                left_t = [t for t in page.tables if (t.bbox and len(t.bbox) >= 4) and (t.bbox[0] + t.bbox[2]) / 2.0 < mid_x and (t.bbox[2] - t.bbox[0]) <= 0.65 * p_width]
-                right_t = [t for t in page.tables if (t.bbox and len(t.bbox) >= 4) and (t.bbox[0] + t.bbox[2]) / 2.0 >= mid_x and (t.bbox[2] - t.bbox[0]) <= 0.65 * p_width]
-                span_t = [t for t in page.tables if t not in left_t and t not in right_t]
-
-                left_items = _interleave(left_b, left_t)
-                right_items = _interleave(right_b, right_t)
-                span_items = _interleave(span_b, span_t)
-
-                if span_items:
-                    items = _interleave(synthesized_blocks, page.tables)
-                else:
-                    items = left_items + right_items
+            # Interleave tables if present, otherwise preserve synthesized reading order directly
+            if not page.tables:
+                items = [(b.bbox[1] if b.bbox else 0.0, "block", b) for b in synthesized_blocks]
             else:
-                items = _interleave(synthesized_blocks, page.tables)
+                p_width = getattr(page, "width", 595.0) or 595.0
+                if p_width > 900:
+                    mid_x = p_width / 2.0
+                    left_b = [b for b in synthesized_blocks if b.bbox and (b.bbox[0] + b.bbox[2]) / 2.0 < mid_x and (b.bbox[2] - b.bbox[0]) <= 0.65 * p_width]
+                    right_b = [b for b in synthesized_blocks if b.bbox and (b.bbox[0] + b.bbox[2]) / 2.0 >= mid_x and (b.bbox[2] - b.bbox[0]) <= 0.65 * p_width]
+                    span_b = [b for b in synthesized_blocks if b not in left_b and b not in right_b]
+
+                    left_t = [t for t in page.tables if (t.bbox and len(t.bbox) >= 4) and (t.bbox[0] + t.bbox[2]) / 2.0 < mid_x and (t.bbox[2] - t.bbox[0]) <= 0.65 * p_width]
+                    right_t = [t for t in page.tables if (t.bbox and len(t.bbox) >= 4) and (t.bbox[0] + t.bbox[2]) / 2.0 >= mid_x and (t.bbox[2] - t.bbox[0]) <= 0.65 * p_width]
+                    span_t = [t for t in page.tables if t not in left_t and t not in right_t]
+
+                    left_items = _interleave(left_b, left_t)
+                    right_items = _interleave(right_b, right_t)
+                    span_items = _interleave(span_b, span_t)
+
+                    if span_items:
+                        items = _interleave(synthesized_blocks, page.tables)
+                    else:
+                        items = left_items + right_items
+                else:
+                    items = _interleave(synthesized_blocks, page.tables)
 
         # 3. Render content items in geometric reading sequence
         current_para: List[str] = []

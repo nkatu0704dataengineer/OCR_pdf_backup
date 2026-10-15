@@ -67,23 +67,19 @@ def main():
 
     print(f"[*] Đang thực hiện đếm từ khóa cho: {doc_id}")
     print(f"[*] Thư mục: {target_path}")
-    print(f"[*] Chế độ LLM Recheck: {'TẮT' if args.disable_llm else 'BẬT'}")
-    print(f"[*] Ngưỡng tương đồng tối thiểu: {args.min_sim * 100:.0f}%")
+    print(f"[*] Chế độ đếm: Tầng 1 (Thuần thuật toán 100% Exact Matching)")
 
     report = CountKeywordsUseCase.execute(
         doc_dir=target_path,
         document_id=doc_id,
         keywords_file=kw_path,
-        enable_llm=not args.disable_llm,
-        min_similarity=args.min_sim,
     )
 
     if report:
-        out_file = target_path / "count_keywords.md"
-        print(f"[THÀNH CÔNG] Đã lưu kết quả tại: {out_file}")
+        out_file = target_path / "count_keywords.xlsx"
+        print(f"[THÀNH CÔNG] Đã lưu bảng thống kê Excel tại: {out_file}")
+        print(f"  - Tổng số từ khóa tìm kiếm: {report.total_keywords_searched}")
         print(f"  - Khớp chính xác (100%): {report.total_exact_matches}")
-        print(f"  - Khớp gần đúng ({args.min_sim * 100:.0f}% - 99%): {report.total_fuzzy_matches}")
-        print(f"  - Tổng số lần phát hiện: {report.total_matches}")
     else:
         print("[LỖI] Không thể tạo báo cáo từ khóa.", file=sys.stderr)
         sys.exit(1)
